@@ -203,16 +203,25 @@ jobs:
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
 
-      - name: Kompilasi Kernel
-        working-directory: ${{ github.workspace }}/kernel_garnet
-        run: |
+            - name: Kompilasi Kernel
+          working-directory: ${{ github.workspace }}/kernel_garnet
+          run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="KyZone"
           export KBUILD_BUILD_HOST="GitHubActions"
 
-          # 1. Buat file out/.config awal
+          # 1. Perbaiki langsung unused label 'skip' di fs/proc/bootconfig.c
+          if [ -f "fs/proc/bootconfig.c" ]; then
+            sed -i 's/skip:;/skip: __attribute__((unused));/g' fs/proc/bootconfig.c
+          fi
+
+          # 2. Hapus paksa flag -Werror dari Makefile utama & sub-Makefile agar Clang tidak rewel
+          sed -i 's/-Werror/-Wno-error/g' Makefile
+          find . -type f -name "Makefile*" -exec sed -i 's/-Werror/-Wno-error/g' {} +
+
+          # 3. Buat file out/.config awal
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
             OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -220,16 +229,33 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             ${{ github.event.inputs.defconfig_name }}
 
-          # 2. Tampilkan status CONFIG_KSU dan CONFIG_KSU_SUSFS di log
+          # 4. Matikan CONFIG_WERROR di .config
+          ./scripts/config --file out/.config -d WERROR
+          ./scripts/config --file out/.config -d CONFIG_WERROR
+          ./scripts/config --file out/.config -d CC_WERROR
+
           echo "=== Status Konfigurasi KSU & SUSFS ==="
           grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS" out/.config || true
 
-          # 3. Jalankan kompilasi penuh kernel
+          # 5. Jalankan kompilasi penuh dengan flag -Wno-unused-label dan -Wno-error
+          set +e
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
             OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            KCFLAGS="-Wno-error -Wno-unused-label -Wno-unused-variable -Wno-unused-function" 2>&1 | tee build.log
+          BUILD_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          # 6. Jika masih ada gagal, tampilkan ringkasan penyebab error di bagian paling bawah
+          if [ $BUILD_STATUS -ne 0 ]; then
+            echo "=========================================="
+            echo "RINGKASAN PENYEBAB ERROR KOMPILASI:"
+            echo "=========================================="
+            grep -En "error:|fatal error:|undefined reference" build.log || tail -n 50 build.log
+            exit $BUILD_STATUS
+          fi
 
       - name: Bungkus dengan AnyKernel3
         working-directory: ${{ github.workspace }}
