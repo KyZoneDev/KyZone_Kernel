@@ -217,13 +217,20 @@ jobs:
             sed -i 's/skip:;/skip: __attribute__((unused));/g' fs/proc/bootconfig.c
           fi
 
-          # 2. FIX: Deklarasikan ksu_late_loaded jika belum ada di KernelSU-Next
+          # 2. FIX: Deklarasikan ksu_late_loaded dengan tipe int atau setelah include
           KSU_INIT_C=$(find drivers/kernelsu KernelSU-Next -name "init.c" | head -n 1)
           if [ -n "$KSU_INIT_C" ] && grep -q "ksu_late_loaded" "$KSU_INIT_C"; then
-            if ! grep -q "bool ksu_late_loaded" "$KSU_INIT_C"; then
-              sed -i '1i bool ksu_late_loaded = false;' "$KSU_INIT_C"
+            if ! grep -q "int ksu_late_loaded" "$KSU_INIT_C"; then
+              # Cari baris terakhir #include dan sisipkan deklarasi di bawahnya
+              LAST_INCLUDE=$(grep -n "#include" "$KSU_INIT_C" | tail -n 1 | cut -d: -f1)
+              if [ -n "$LAST_INCLUDE" ]; then
+                sed -i "${LAST_INCLUDE}a int ksu_late_loaded = 0;" "$KSU_INIT_C"
+              else
+                sed -i '1i int ksu_late_loaded = 0;' "$KSU_INIT_C"
+              fi
             fi
           fi
+
 
           # 3. Hapus paksa flag -Werror dari Makefile utama & sub-Makefile
           sed -i 's/-Werror/-Wno-error/g' Makefile
