@@ -44,32 +44,67 @@ jobs:
           tar -xzf clang.tar.gz -C clang
           rm clang.tar.gz
 
-      - name: Integrasi KernelSU (Opsional)
-        if: ${{ github.event.inputs.ksu == 'true' }}
+            - name: Integrasi KernelSU-Next & SUSFS (5.10 GKI)
         working-directory: kernel
         run: |
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          # 1. Bersihkan sisa KernelSU lama jika sudah ada di dalam source kernel
+          rm -rf KernelSU KernelSU-Next drivers/kernelsu
+          sed -i '/kernelsu/d' drivers/Makefile
+          sed -i '/kernelsu/d' drivers/Kconfig
 
-      - name: Compile Kernel
+          # 2. Jalankan setup.sh resmi KernelSU-Next (tanpa argumen yang memicu error branch)
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+
+          # 3. Clone repo SUSFS khusus GKI Android 12 (5.10)
+          rm -rf susfs4ksu
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 susfs4ksu
+
+          # 4. Salin file utama SUSFS ke dalam folder fs/ dan include/linux/
+          cp -r susfs4ksu/kernel_patches/fs/* fs/
+          cp -r susfs4ksu/kernel_patches/include/linux/* include/linux/
+
+          # 5. Terapkan patch SUSFS ke kernel 5.10 (menggunakan -N agar tidak error jika sebagian sudah ter-patch)
+          cp susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch .
+          patch -p1 -N --no-backup-if-mismatch < 50_add_susfs_in_gki-android12-5.10.patch || true
+
+
+            - name: Compile Kernel
         working-directory: kernel
         run: |
           export PATH="${GITHUB_WORKSPACE}/clang/bin:${PATH}"
           export ARCH=arm64
           export SUBARCH=arm64
-          export KBUILD_BUILD_USER="Builder"
-          export KBUILD_BUILD_HOST="GitHubActions"
 
-          # Sesuaikan nama defconfig dengan isi folder arch/arm64/configs/ di repo Anda
+          # Buat defconfig awal
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             gki_defconfig \
             vendor/parrot_GKI.config \
             vendor/garnet_GKI.config
 
+          # Aktifkan flag KernelSU-Next dan SUSFS secara otomatis ke dalam out/.config
+          ./scripts/config --file out/.config \
+            -e KSU \
+            -e KSU_SUSFS \
+            -e KSU_SUSFS_SUS_PATH \
+            -e KSU_SUSFS_SUS_MOUNT \
+            -e KSU_SUSFS_SUS_KSTAT \
+            -e KSU_SUSFS_SUS_OVERLAYFS \
+            -e KSU_SUSFS_TRY_UMOUNT \
+            -e KSU_SUSFS_SPOOF_UNAME \
+            -e KSU_SUSFS_ENABLE_LOG \
+            -e KSU_SUSFS_OPEN_REDIRECT \
+            -e KSU_SUSFS_SUS_SU
+
+          # Sinkronisasi ulang config sebelum build
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+
+          # Mulai kompilasi Image kernel
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             Image
+
 
       - name: Kemas dengan AnyKernel3
         run: |
