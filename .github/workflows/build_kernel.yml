@@ -16,7 +16,7 @@ on:
         required: true
         default: 'gki_defconfig'
       use_dev_susfs_branch:
-        description: 'Gunakan branch pre-patched dev-susfs KSU-Next? (true/false)'
+        description: 'Gunakan branch dev-susfs KSU-Next? (true/false)'
         required: true
         default: 'false'
 
@@ -48,8 +48,8 @@ jobs:
 
       - name: Unduh Toolchain Clang (AOSP LLVM)
         run: |
-          git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r522817.git clang
-       
+          git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r510928.git clang
+          ./clang/bin/clang --version
 
       - name: Integrasi KernelSU Next v3.4.0 & SUSFS
         working-directory: ${{ github.workspace }}/kernel_garnet
@@ -65,30 +65,120 @@ jobs:
           # 3. Terapkan patch SUSFS ke kernel 5.10
           patch -p1 --fuzz=3 < .susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
 
-          # 4. Pasang KernelSU Next v3.4.0 (atau branch dev-susfs)
+          # 4. Pasang KernelSU Next & Patch SUSFS
           if [ "${{ github.event.inputs.use_dev_susfs_branch }}" = "true" ]; then
-            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev-susfs || \
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next-susfs
           else
             curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.4.0
             
-            # Terapkan patch kompatibilitas SUSFS pada folder KernelSU-Next
             SUS_VER=$(grep -E '^#define SUSFS_VERSION' .susfs/kernel_patches/include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
             cd KernelSU-Next || cd KernelSU
+            
+            # Terapkan patch utama SUSFS terlebih dahulu, lalu diikuti fix patch
+            patch -p1 --fuzz=3 -N < ../.susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
             if [ -d "../.kp/next/susfs_fix_patches/${SUS_VER}" ]; then
               for p in ../.kp/next/susfs_fix_patches/${SUS_VER}/*.patch; do
-                patch -p1 --fuzz=3 < "$p" || true
+                patch -p1 --fuzz=3 -N < "$p" || true
               done
-            else
-              patch -p1 --fuzz=3 < ../.susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
             fi
+          fi
+
+          # 5. Pastikan definisi KSU_SUSFS terdaftar di Kconfig KernelSU-Next agar tidak dihapus saat make defconfig
+          cd "${{ github.workspace }}/kernel_garnet"
+          KSU_KCONFIG=$(find KernelSU* drivers/kernelsu -maxdepth 2 -name "Kconfig" | head -n 1)
+          if ! grep -q "config KSU_SUSFS" "$KSU_KCONFIG"; then
+            sed -i '/endmenu/d' "$KSU_KCONFIG"
+            cat << 'EOF' >> "$KSU_KCONFIG"
+
+          config KSU_SUSFS
+              bool "KernelSU addon - SUSFS"
+              depends on KSU
+              default y
+
+          config KSU_SUSFS_HAS_MAGIC_MOUNT
+              bool "Enable SUSFS Magic Mount"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_SUS_PATH
+              bool "Enable to hide suspicious path"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_SUS_MOUNT
+              bool "Enable to hide suspicious mounts"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+              bool "Enable to hide KSU's default mounts automatically"
+              depends on KSU_SUSFS_SUS_MOUNT
+              default y
+
+          config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+              bool "Enable to hide suspicious bind mounts automatically"
+              depends on KSU_SUSFS_SUS_MOUNT
+              default y
+
+          config KSU_SUSFS_SUS_KSTAT
+              bool "Enable to spoof suspicious kstat"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_SUS_OVERLAYFS
+              bool "Enable to spoof suspicious overlayfs"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_TRY_UMOUNT
+              bool "Enable to use ksu's try_umount"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+              bool "Enable to add bind mounts to ksu's try_umount automatically"
+              depends on KSU_SUSFS_TRY_UMOUNT
+              default y
+
+          config KSU_SUSFS_SPOOF_UNAME
+              bool "Enable to spoof uname"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_ENABLE_LOG
+              bool "Enable logging susfs messages"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+              bool "Enable to automatically hide ksu and susfs symbols from /proc/kallsyms"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+              bool "Enable to spoof /proc/bootconfig or /proc/cmdline"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_OPEN_REDIRECT
+              bool "Enable to redirect a path to be opened with another path"
+              depends on KSU_SUSFS
+              default y
+
+          config KSU_SUSFS_SUS_SU
+              bool "Enable SUS-SU in runtime temporarily"
+              depends on KSU_SUSFS && KPROBES && HAVE_KPROBES && KPROBE_EVENTS
+              default n
+
+          endmenu
+          EOF
           fi
 
       - name: Injeksi Flag Defconfig (KSU Next & SUSFS)
         working-directory: ${{ github.workspace }}/kernel_garnet
         run: |
           DEFCONFIG_FILE="arch/arm64/configs/${{ github.event.inputs.defconfig_name }}"
-          
-          # Jika tree menggunakan fragment vendor/garnet_GKI.config atau parrot_GKI.config, tambahkan juga
           cat << 'EOF' >> "$DEFCONFIG_FILE"
           CONFIG_KSU=y
           CONFIG_KPROBES=y
@@ -119,7 +209,10 @@ jobs:
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
+          export KBUILD_BUILD_USER="KyZone"
+          export KBUILD_BUILD_HOST="GitHubActions"
 
+          # 1. Buat file out/.config awal
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
             OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -127,10 +220,11 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             ${{ github.event.inputs.defconfig_name }}
 
-          # Verifikasi apakah CONFIG_KSU dan CONFIG_KSU_SUSFS aktif di .config
-          grep "CONFIG_KSU=" out/.config
-          grep "CONFIG_KSU_SUSFS=" out/.config
+          # 2. Tampilkan status CONFIG_KSU dan CONFIG_KSU_SUSFS di log
+          echo "=== Status Konfigurasi KSU & SUSFS ==="
+          grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS" out/.config || true
 
+          # 3. Jalankan kompilasi penuh kernel
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
             OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -143,7 +237,6 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           rm -rf AnyKernel3/.git
 
-          # Sesuaikan anykernel.sh untuk Redmi Note 13 Pro 5G / Poco X6 5G (garnet)
           sed -i 's/device.name1=.*/device.name1=garnet/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name2=.*/device.name2=parrot/g' AnyKernel3/anykernel.sh
           sed -i 's/BLOCK=.*/BLOCK=auto;/g' AnyKernel3/anykernel.sh
@@ -159,10 +252,10 @@ jobs:
           fi
 
           cd AnyKernel3
-          zip -r9 "../Garnet-OSS-KSUNext-v3.4.0-SUSFS-$(date +%Y%m%d).zip" * -x .gitignore README.md
+          zip -r9 "../KyZone-Garnet-KSUNext-v3.4.0-SUSFS-$(date +%Y%m%d).zip" * -x .gitignore README.md
 
       - name: Unggah Hasil Build ke Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Garnet-Kernel-KSUNext-v3.4.0-SUSFS
+          name: KyZone-Garnet-KSUNext-v3.4.0-SUSFS
           path: ${{ github.workspace }}/*.zip
