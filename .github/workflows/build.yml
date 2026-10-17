@@ -1,12 +1,12 @@
-name: Build OSS Kernel Garnet (SM7435)
+name: Build OSS Kernel Garnet (SM7435) with KSU-Next & SUSFS
 
 on:
   workflow_dispatch:
     inputs:
       ksu:
-        description: 'Integrasikan KernelSU? (true/false)'
+        description: 'Integrasikan KernelSU-Next & SUSFS? (true/false)'
         required: true
-        default: 'false'
+        default: 'true'
 
 jobs:
   build:
@@ -26,7 +26,7 @@ jobs:
             lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev \
             libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev python-is-python3 \
-             dwarves pahole cpio
+            dwarves pahole cpio
 
       - name: Checkout Source Kernel
         uses: actions/checkout@v4
@@ -37,23 +37,23 @@ jobs:
       - name: Setup Toolchain (Clang)
         run: |
           mkdir -p clang
-          # Mengambil URL download .tar.gz paling baru dari ZyC Clang secara otomatis
           CLANG_URL=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
           echo "Mengunduh Clang dari: $CLANG_URL"
           curl -LSs "$CLANG_URL" -o clang.tar.gz
           tar -xzf clang.tar.gz -C clang
           rm clang.tar.gz
 
-            - name: Integrasi KernelSU-Next & SUSFS (5.10 GKI)
+      - name: Integrasi KernelSU-Next & SUSFS (5.10 GKI)
+        if: ${{ github.event.inputs.ksu == 'true' }}
         working-directory: kernel
         run: |
-          # 1. Bersihkan sisa KernelSU lama jika sudah ada di dalam source kernel
+          # 1. Bersihkan sisa KernelSU lama jika ada
           rm -rf KernelSU KernelSU-Next drivers/kernelsu
-          sed -i '/kernelsu/d' drivers/Makefile
-          sed -i '/kernelsu/d' drivers/Kconfig
+          sed -i '/kernelsu/d' drivers/Makefile || true
+          sed -i '/kernelsu/d' drivers/Kconfig || true
 
-          # 2. Jalankan setup.sh resmi KernelSU-Next (tanpa argumen yang memicu error branch)
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+          # 2. Pasang KernelSU-Next menggunakan branch pre-patched susfs agar aman dari konflik
+          curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 
           # 3. Clone repo SUSFS khusus GKI Android 12 (5.10)
           rm -rf susfs4ksu
@@ -63,64 +63,64 @@ jobs:
           cp -r susfs4ksu/kernel_patches/fs/* fs/
           cp -r susfs4ksu/kernel_patches/include/linux/* include/linux/
 
-          # 5. Terapkan patch SUSFS ke kernel 5.10 (menggunakan -N agar tidak error jika sebagian sudah ter-patch)
+          # 5. Terapkan patch SUSFS ke kernel
           cp susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch .
           patch -p1 -N --no-backup-if-mismatch < 50_add_susfs_in_gki-android12-5.10.patch || true
 
-
-            - name: Compile Kernel
+      - name: Compile Kernel
         working-directory: kernel
         run: |
           export PATH="${GITHUB_WORKSPACE}/clang/bin:${PATH}"
           export ARCH=arm64
           export SUBARCH=arm64
+          export KBUILD_BUILD_USER="Builder"
+          export KBUILD_BUILD_HOST="GitHubActions"
 
-          # Buat defconfig awal
+          # Gabungkan defconfig dasar garnet
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             gki_defconfig \
             vendor/parrot_GKI.config \
             vendor/garnet_GKI.config
 
-          # Aktifkan flag KernelSU-Next dan SUSFS secara otomatis ke dalam out/.config
-          ./scripts/config --file out/.config \
-            -e KSU \
-            -e KSU_SUSFS \
-            -e KSU_SUSFS_SUS_PATH \
-            -e KSU_SUSFS_SUS_MOUNT \
-            -e KSU_SUSFS_SUS_KSTAT \
-            -e KSU_SUSFS_SUS_OVERLAYFS \
-            -e KSU_SUSFS_TRY_UMOUNT \
-            -e KSU_SUSFS_SPOOF_UNAME \
-            -e KSU_SUSFS_ENABLE_LOG \
-            -e KSU_SUSFS_OPEN_REDIRECT \
-            -e KSU_SUSFS_SUS_SU
+          # Aktifkan konfigurasi KSU dan SUSFS jika diaktifkan
+          if [ "${{ github.event.inputs.ksu }}" = "true" ]; then
+            ./scripts/config --file out/.config \
+              -e KSU \
+              -e KSU_SUSFS \
+              -e KSU_SUSFS_SUS_PATH \
+              -e KSU_SUSFS_SUS_MOUNT \
+              -e KSU_SUSFS_SUS_KSTAT \
+              -e KSU_SUSFS_SUS_OVERLAYFS \
+              -e KSU_SUSFS_TRY_UMOUNT \
+              -e KSU_SUSFS_SPOOF_UNAME \
+              -e KSU_SUSFS_ENABLE_LOG \
+              -e KSU_SUSFS_OPEN_REDIRECT \
+              -e KSU_SUSFS_SUS_SU
+          fi
 
-          # Sinkronisasi ulang config sebelum build
+          # Sinkronisasi konfigurasi lama ke baru
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
-          # Mulai kompilasi Image kernel
+          # Proses kompilasi Image kernel
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             Image
 
-
       - name: Kemas dengan AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          # Sesuaikan konfigurasi AnyKernel3 untuk garnet
           sed -i 's/device.name1=.*/device.name1=garnet/g' AnyKernel3/anykernel.sh
           sed -i 's/BLOCK=.*/BLOCK=\/dev\/block\/bootdevice\/by-name\/boot;/g' AnyKernel3/anykernel.sh
           sed -i 's/IS_SLOT_DEVICE=0/IS_SLOT_DEVICE=1/g' AnyKernel3/anykernel.sh
           
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
           cd AnyKernel3
-          zip -r9 ../Garnet-OSS-Kernel-$(date +%Y%m%d).zip * -x .git README.md *placeholder
+          zip -r9 ../Garnet-KSU-SUSFS-Kernel-$(date +%Y%m%d).zip * -x .git README.md *placeholder
 
       - name: Upload Hasil Build (Artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: Garnet-OSS-Kernel
-          path: Garnet-OSS-Kernel-*.zip
-          
+          name: Garnet-KSU-SUSFS-Kernel
+          path: Garnet-KSU-SUSFS-Kernel-*.zip
