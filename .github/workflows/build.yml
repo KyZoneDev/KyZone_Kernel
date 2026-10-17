@@ -53,7 +53,7 @@ jobs:
           sed -i '/kernelsu/d' drivers/Kconfig || true
 
           # 2. Pasang KernelSU-Next menggunakan branch pre-patched susfs agar aman dari konflik
-          curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev
 
           # 3. Clone repo SUSFS khusus GKI Android 12 (5.10)
           rm -rf susfs4ksu
