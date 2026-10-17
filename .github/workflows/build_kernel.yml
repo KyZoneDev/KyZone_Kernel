@@ -48,8 +48,8 @@ jobs:
 
       - name: Unduh Toolchain Clang (AOSP LLVM)
         run: |
-          mkdir -p clang
-          curl -LSs "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r510928.tar.gz" | tar -xz -C clang
+          git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r510928.git clang./clang/bin/clang --version
+       
 
       - name: Integrasi KernelSU Next v3.4.0 & SUSFS
         working-directory: ${{ github.workspace }}/kernel_garnet
