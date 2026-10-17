@@ -37,8 +37,10 @@ jobs:
       - name: Setup Toolchain (Clang)
         run: |
           mkdir -p clang
-          # Menggunakan WeebX / ZyC Clang 17+ (Cocok untuk kernel 5.10 GKI)
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/18.0.0git-20240220-release/Clang-18.0.0git-20240220.tar.gz -O clang.tar.gz
+          # Mengambil URL download .tar.gz paling baru dari ZyC Clang secara otomatis
+          CLANG_URL=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
+          echo "Mengunduh Clang dari: $CLANG_URL"
+          curl -LSs "$CLANG_URL" -o clang.tar.gz
           tar -xzf clang.tar.gz -C clang
           rm clang.tar.gz
 
