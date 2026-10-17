@@ -50,20 +50,8 @@ jobs:
 
 
           # 2. Pasang KernelSU-Next menggunakan branch pre-patched susfs agar aman dari konflik
-          curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev
           
-          # 3. Clone repo SUSFS khusus GKI Android 12 (5.10)
-          rm -rf susfs4ksu
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 susfs4ksu
-
-          # 4. Salin file utama SUSFS ke dalam folder fs/ dan include/linux/
-          cp -r susfs4ksu/kernel_patches/fs/* fs/
-          cp -r susfs4ksu/kernel_patches/include/linux/* include/linux/
-
-          # 5. Terapkan patch SUSFS ke kernel
-          cp susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch .
-          patch -p1 -N --no-backup-if-mismatch < 50_add_susfs_in_gki-android12-5.10.patch || true
-
       - name: Compile Kernel
         working-directory: kernel
         run: |
