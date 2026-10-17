@@ -203,9 +203,9 @@ jobs:
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
 
-            - name: Kompilasi Kernel
-          working-directory: ${{ github.workspace }}/kernel_garnet
-          run: |
+      - name: Kompilasi Kernel
+        working-directory: ${{ github.workspace }}/kernel_garnet   
+        run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
