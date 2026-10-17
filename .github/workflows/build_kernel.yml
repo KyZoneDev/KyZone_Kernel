@@ -35,10 +35,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev \
-            libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
-            rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-aarch64-linux-gnu \
+            binutils-arm-linux-gnueabi git gnupg gperf imagemagick lib32ncurses5-dev \
+            lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 \
+            libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
+            pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
             python3 python-is-python3 cpio pahole dwarves zstd
 
       - name: Clone Source Kernel Garnet
@@ -67,15 +68,14 @@ jobs:
 
           # 4. Pasang KernelSU Next & Patch SUSFS
           if [ "${{ github.event.inputs.use_dev_susfs_branch }}" = "true" ]; then
-            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev-susfs || \
-            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next-susfs
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next-susfs || \
+            curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next-susfs
           else
             curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.4.0
             
             SUS_VER=$(grep -E '^#define SUSFS_VERSION' .susfs/kernel_patches/include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
             cd KernelSU-Next || cd KernelSU
             
-            # Terapkan patch utama SUSFS terlebih dahulu, lalu diikuti fix patch
             patch -p1 --fuzz=3 -N < ../.susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
             if [ -d "../.kp/next/susfs_fix_patches/${SUS_VER}" ]; then
               for p in ../.kp/next/susfs_fix_patches/${SUS_VER}/*.patch; do
@@ -84,7 +84,7 @@ jobs:
             fi
           fi
 
-          # 5. Pastikan definisi KSU_SUSFS terdaftar di Kconfig KernelSU-Next agar tidak dihapus saat make defconfig
+          # 5. Pastikan definisi KSU_SUSFS terdaftar di Kconfig KernelSU-Next
           cd "${{ github.workspace }}/kernel_garnet"
           KSU_KCONFIG=$(find KernelSU* drivers/kernelsu -maxdepth 2 -name "Kconfig" | head -n 1)
           if ! grep -q "config KSU_SUSFS" "$KSU_KCONFIG"; then
@@ -179,29 +179,27 @@ jobs:
         working-directory: ${{ github.workspace }}/kernel_garnet
         run: |
           DEFCONFIG_FILE="arch/arm64/configs/${{ github.event.inputs.defconfig_name }}"
-          cat << 'EOF' >> "$DEFCONFIG_FILE"
-          CONFIG_KSU=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_KSU_KPROBE_HOOKS=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          EOF
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KPROBES
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_HAVE_KPROBES
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KPROBE_EVENTS
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_KPROBE_HOOKS
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_SUS_PATH
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_SUS_MOUNT
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_SUS_KSTAT
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_SUS_OVERLAYFS
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_TRY_UMOUNT
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_SPOOF_UNAME
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_ENABLE_LOG
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_TMPFS_XATTR
+          ./scripts/config --file "$DEFCONFIG_FILE" --enable CONFIG_TMPFS_POSIX_ACL
 
       - name: Kompilasi Kernel
         working-directory: ${{ github.workspace }}/kernel_garnet
@@ -212,27 +210,22 @@ jobs:
           export KBUILD_BUILD_USER="KyZone"
           export KBUILD_BUILD_HOST="GitHubActions"
 
-          # 1. Perbaiki langsung unused label 'skip' di fs/proc/bootconfig.c
+          # 1. Perbaiki unused label 'skip' di fs/proc/bootconfig.c
           if [ -f "fs/proc/bootconfig.c" ]; then
             sed -i 's/skip:;/skip: __attribute__((unused));/g' fs/proc/bootconfig.c
           fi
 
-          # 2. FIX: Deklarasikan ksu_late_loaded dengan tipe int atau setelah include
-          KSU_INIT_C=$(find drivers/kernelsu KernelSU-Next -name "init.c" | head -n 1)
-          if [ -n "$KSU_INIT_C" ] && grep -q "ksu_late_loaded" "$KSU_INIT_C"; then
-            if ! grep -q "int ksu_late_loaded" "$KSU_INIT_C"; then
-              # Cari baris terakhir #include dan sisipkan deklarasi di bawahnya
-              LAST_INCLUDE=$(grep -n "#include" "$KSU_INIT_C" | tail -n 1 | cut -d: -f1)
-              if [ -n "$LAST_INCLUDE" ]; then
-                sed -i "${LAST_INCLUDE}a int ksu_late_loaded = 0;" "$KSU_INIT_C"
-              else
-                sed -i '1i int ksu_late_loaded = 0;' "$KSU_INIT_C"
+          # 2. FIX: Deklarasi universal ksu_late_loaded di bawah #include pada file manapun yang membutuhkannya
+          for f in $(find . -name "*.c" -o -name "*.h"); do
+            if grep -q "ksu_late_loaded" "$f" && ! grep -q "int ksu_late_loaded" "$f"; then
+              LAST_INC=$(grep -n "#include" "$f" | tail -n 1 | cut -d: -f1)
+              if [ -n "$LAST_INC" ]; then
+                sed -i "${LAST_INC}a int ksu_late_loaded = 0;" "$f"
               fi
             fi
-          fi
+          done
 
-
-          # 3. Hapus paksa flag -Werror dari Makefile utama & sub-Makefile
+          # 3. Hapus paksa flag -Werror dari Makefile
           sed -i 's/-Werror/-Wno-error/g' Makefile
           find . -type f -name "Makefile*" -exec sed -i 's/-Werror/-Wno-error/g' {} +
 
@@ -270,7 +263,6 @@ jobs:
             grep -En "error:|fatal error:|undefined reference" build.log || tail -n 50 build.log
             exit $BUILD_STATUS
           fi
-
 
       - name: Bungkus dengan AnyKernel3
         working-directory: ${{ github.workspace }}
