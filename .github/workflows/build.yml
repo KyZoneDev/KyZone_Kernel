@@ -47,14 +47,11 @@ jobs:
         if: ${{ github.event.inputs.ksu == 'true' }}
         working-directory: kernel
         run: |
-          # 1. Bersihkan sisa KernelSU lama jika ada
-          rm -rf KernelSU KernelSU-Next drivers/kernelsu
-          sed -i '/kernelsu/d' drivers/Makefile || true
-          sed -i '/kernelsu/d' drivers/Kconfig || true
+
 
           # 2. Pasang KernelSU-Next menggunakan branch pre-patched susfs agar aman dari konflik
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev
-
+          curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+          
           # 3. Clone repo SUSFS khusus GKI Android 12 (5.10)
           rm -rf susfs4ksu
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 susfs4ksu
