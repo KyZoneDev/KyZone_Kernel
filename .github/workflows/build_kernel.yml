@@ -204,7 +204,7 @@ jobs:
           EOF
 
       - name: Kompilasi Kernel
-        working-directory: ${{ github.workspace }}/kernel_garnet   
+        working-directory: ${{ github.workspace }}/kernel_garnet
         run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export ARCH=arm64
@@ -217,11 +217,19 @@ jobs:
             sed -i 's/skip:;/skip: __attribute__((unused));/g' fs/proc/bootconfig.c
           fi
 
-          # 2. Hapus paksa flag -Werror dari Makefile utama & sub-Makefile agar Clang tidak rewel
+          # 2. FIX: Deklarasikan ksu_late_loaded jika belum ada di KernelSU-Next
+          KSU_INIT_C=$(find drivers/kernelsu KernelSU-Next -name "init.c" | head -n 1)
+          if [ -n "$KSU_INIT_C" ] && grep -q "ksu_late_loaded" "$KSU_INIT_C"; then
+            if ! grep -q "bool ksu_late_loaded" "$KSU_INIT_C"; then
+              sed -i '1i bool ksu_late_loaded = false;' "$KSU_INIT_C"
+            fi
+          fi
+
+          # 3. Hapus paksa flag -Werror dari Makefile utama & sub-Makefile
           sed -i 's/-Werror/-Wno-error/g' Makefile
           find . -type f -name "Makefile*" -exec sed -i 's/-Werror/-Wno-error/g' {} +
 
-          # 3. Buat file out/.config awal
+          # 4. Buat file out/.config awal
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
             OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -229,7 +237,7 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             ${{ github.event.inputs.defconfig_name }}
 
-          # 4. Matikan CONFIG_WERROR di .config
+          # 5. Matikan CONFIG_WERROR di .config
           ./scripts/config --file out/.config -d WERROR
           ./scripts/config --file out/.config -d CONFIG_WERROR
           ./scripts/config --file out/.config -d CC_WERROR
@@ -237,7 +245,7 @@ jobs:
           echo "=== Status Konfigurasi KSU & SUSFS ==="
           grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS" out/.config || true
 
-          # 5. Jalankan kompilasi penuh dengan flag -Wno-unused-label dan -Wno-error
+          # 6. Jalankan kompilasi penuh
           set +e
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
@@ -248,7 +256,6 @@ jobs:
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
 
-          # 6. Jika masih ada gagal, tampilkan ringkasan penyebab error di bagian paling bawah
           if [ $BUILD_STATUS -ne 0 ]; then
             echo "=========================================="
             echo "RINGKASAN PENYEBAB ERROR KOMPILASI:"
@@ -256,6 +263,7 @@ jobs:
             grep -En "error:|fatal error:|undefined reference" build.log || tail -n 50 build.log
             exit $BUILD_STATUS
           fi
+
 
       - name: Bungkus dengan AnyKernel3
         working-directory: ${{ github.workspace }}
