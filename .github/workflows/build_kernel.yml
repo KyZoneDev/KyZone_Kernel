@@ -48,7 +48,7 @@ jobs:
 
       - name: Unduh Toolchain Clang (AOSP LLVM)
         run: |
-          git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r510928.git clang./clang/bin/clang --version
+          git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r522817.git clang
        
 
       - name: Integrasi KernelSU Next v3.4.0 & SUSFS
